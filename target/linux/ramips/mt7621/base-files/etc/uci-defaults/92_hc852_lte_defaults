@@ -1,0 +1,64 @@
+#!/bin/sh
+
+. /lib/functions/system.sh
+
+board="$(board_name)"
+
+[ "$board" = "huastlink,hc852" ] || exit 0
+
+# Keep backward compatibility with older snapshots that used "lte".
+if uci -q get network.lte >/dev/null && ! uci -q get network.defdo_dev >/dev/null; then
+	uci rename network.lte="defdo_dev"
+fi
+
+# Primary Quectel profile shown in LuCI as "defdo_dev".
+if ! uci -q get network.defdo_dev >/dev/null; then
+	uci set network.defdo_dev="interface"
+fi
+
+uci set network.defdo_dev.proto="qmi"
+uci set network.defdo_dev.device="/dev/cdc-wdm0"
+uci set network.defdo_dev.apn="internet.mvno195.com"
+uci set network.defdo_dev.pdptype="ipv4v6"
+uci set network.defdo_dev.modes="lte"
+uci set network.defdo_dev.plmn="0"
+uci set network.defdo_dev.timeout="60"
+uci set network.defdo_dev.delay="5"
+uci set network.defdo_dev.metric="30"
+uci set network.defdo_dev.auto="1"
+
+# Secondary profile for a second modem/card (manual enable).
+if ! uci -q get network.defdo_dev2 >/dev/null; then
+	uci set network.defdo_dev2="interface"
+	uci set network.defdo_dev2.proto="qmi"
+	uci set network.defdo_dev2.device="/dev/cdc-wdm1"
+	uci set network.defdo_dev2.apn="internet.mvno195.com"
+	uci set network.defdo_dev2.pdptype="ipv4v6"
+	uci set network.defdo_dev2.modes="lte"
+	uci set network.defdo_dev2.plmn="0"
+	uci set network.defdo_dev2.timeout="60"
+	uci set network.defdo_dev2.delay="5"
+	uci set network.defdo_dev2.metric="40"
+	uci set network.defdo_dev2.auto="0"
+fi
+
+wan_zone="$(uci -q show firewall | sed -n "s/^\(firewall\.@zone\[[0-9]\+\]\)\.name='wan'/\1/p" | head -n1)"
+[ -n "$wan_zone" ] || wan_zone="firewall.@zone[1]"
+
+# Keep WAN zone clean and include the primary LTE profile.
+uci -q del_list "${wan_zone}.network"='lte'
+if ! uci -q show "${wan_zone}.network" | grep -q "'defdo_dev'"; then
+	uci -q add_list "${wan_zone}.network"='defdo_dev'
+fi
+if ! uci -q show "${wan_zone}.network" | grep -q "'defdo_dev2'"; then
+	uci -q add_list "${wan_zone}.network"='defdo_dev2'
+fi
+
+uci commit network
+uci commit firewall
+
+# Try to bind the primary profile to the first present cdc-wdm device.
+[ -x /usr/sbin/hc852_modem_autoselect ] && \
+	/usr/sbin/hc852_modem_autoselect boot >/dev/null 2>&1
+
+exit 0

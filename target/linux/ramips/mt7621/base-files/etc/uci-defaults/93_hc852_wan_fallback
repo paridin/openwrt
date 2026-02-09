@@ -1,0 +1,33 @@
+#!/bin/sh
+
+. /lib/functions/system.sh
+
+board="$(board_name)"
+[ "$board" = "huastlink,hc852" ] || exit 0
+
+carrier() {
+	local dev="$1"
+	[ -r "/sys/class/net/${dev}/carrier" ] || {
+		echo 0
+		return
+	}
+	cat "/sys/class/net/${dev}/carrier" 2>/dev/null || echo 0
+}
+
+# Default mapping is WAN=wan. If the dedicated WAN jack has no carrier and
+# lan4 has carrier on first boot, auto-fallback WAN to lan4.
+[ "$(uci -q get network.wan.device)" = "wan" ] || exit 0
+[ "$(carrier wan)" = "0" ] || exit 0
+[ "$(carrier lan4)" = "1" ] || exit 0
+
+if uci -q show network.@device[0].ports | grep -q "'lan4'"; then
+	uci -q del_list network.@device[0].ports='lan4'
+fi
+
+uci set network.wan.device='lan4'
+uci set network.wan.proto='dhcp'
+uci commit network
+
+logger -t hc852 "WAN fallback enabled on first boot: network.wan.device=lan4"
+
+exit 0

@@ -1,0 +1,106 @@
+#!/bin/sh
+
+. /lib/functions/system.sh
+
+board="$(board_name)"
+[ "$board" = "huastlink,hc852" ] || exit 0
+[ -f /etc/config/mwan3 ] || exit 0
+[ -x /etc/init.d/mwan3 ] || exit 0
+uci -q get network.wan >/dev/null || exit 0
+uci -q get network.defdo_dev >/dev/null || exit 0
+
+uci -q batch <<'EOF'
+set mwan3.globals=globals
+set mwan3.globals.mmx_mask='0x3F00'
+
+delete mwan3.wan6
+delete mwan3.wanb
+delete mwan3.wanb6
+
+set mwan3.wan=interface
+set mwan3.wan.enabled='1'
+set mwan3.wan.family='ipv4'
+set mwan3.wan.reliability='2'
+delete mwan3.wan.track_ip
+add_list mwan3.wan.track_ip='1.1.1.1'
+add_list mwan3.wan.track_ip='8.8.8.8'
+add_list mwan3.wan.track_ip='208.67.222.222'
+
+set mwan3.defdo_dev=interface
+set mwan3.defdo_dev.enabled='1'
+set mwan3.defdo_dev.family='ipv4'
+set mwan3.defdo_dev.reliability='1'
+delete mwan3.defdo_dev.track_ip
+add_list mwan3.defdo_dev.track_ip='1.0.0.1'
+add_list mwan3.defdo_dev.track_ip='9.9.9.9'
+add_list mwan3.defdo_dev.track_ip='208.67.220.220'
+
+set mwan3.defdo_dev2=interface
+set mwan3.defdo_dev2.enabled='0'
+set mwan3.defdo_dev2.family='ipv4'
+set mwan3.defdo_dev2.reliability='1'
+delete mwan3.defdo_dev2.track_ip
+add_list mwan3.defdo_dev2.track_ip='1.0.0.1'
+add_list mwan3.defdo_dev2.track_ip='9.9.9.9'
+add_list mwan3.defdo_dev2.track_ip='208.67.220.220'
+
+delete mwan3.wan_m2_w3
+delete mwan3.wan6_m1_w3
+delete mwan3.wan6_m2_w3
+delete mwan3.wanb_m1_w2
+delete mwan3.wanb_m1_w3
+delete mwan3.wanb_m2_w2
+delete mwan3.wanb6_m1_w2
+delete mwan3.wanb6_m1_w3
+delete mwan3.wanb6_m2_w2
+
+set mwan3.wan_m1_w3=member
+set mwan3.wan_m1_w3.interface='wan'
+set mwan3.wan_m1_w3.metric='1'
+set mwan3.wan_m1_w3.weight='3'
+
+set mwan3.defdo_dev_m2_w2=member
+set mwan3.defdo_dev_m2_w2.interface='defdo_dev'
+set mwan3.defdo_dev_m2_w2.metric='2'
+set mwan3.defdo_dev_m2_w2.weight='2'
+
+set mwan3.defdo_dev2_m3_w1=member
+set mwan3.defdo_dev2_m3_w1.interface='defdo_dev2'
+set mwan3.defdo_dev2_m3_w1.metric='3'
+set mwan3.defdo_dev2_m3_w1.weight='1'
+
+delete mwan3.wan_only
+delete mwan3.wanb_only
+delete mwan3.balanced
+delete mwan3.wan_wanb
+delete mwan3.wanb_wan
+
+set mwan3.wan_only=policy
+add_list mwan3.wan_only.use_member='wan_m1_w3'
+
+set mwan3.lte_only=policy
+add_list mwan3.lte_only.use_member='defdo_dev_m2_w2'
+
+set mwan3.wan_lte_failover=policy
+add_list mwan3.wan_lte_failover.use_member='wan_m1_w3'
+add_list mwan3.wan_lte_failover.use_member='defdo_dev_m2_w2'
+
+set mwan3.wan_lte_lte2_failover=policy
+add_list mwan3.wan_lte_lte2_failover.use_member='wan_m1_w3'
+add_list mwan3.wan_lte_lte2_failover.use_member='defdo_dev_m2_w2'
+add_list mwan3.wan_lte_lte2_failover.use_member='defdo_dev2_m3_w1'
+
+delete mwan3.https
+delete mwan3.default_rule_v6
+set mwan3.default_rule_v4=rule
+set mwan3.default_rule_v4.dest_ip='0.0.0.0/0'
+set mwan3.default_rule_v4.family='ipv4'
+set mwan3.default_rule_v4.use_policy='wan_lte_failover'
+EOF
+
+uci commit mwan3
+/etc/init.d/mwan3 enable >/dev/null 2>&1
+/etc/init.d/mwan3 restart >/dev/null 2>&1 || true
+logger -t hc852 "mwan3 defaults applied: wan -> defdo_dev failover (+defdo_dev2 standby)"
+
+exit 0

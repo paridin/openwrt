@@ -1,0 +1,73 @@
+#!/bin/sh
+
+. /lib/functions/system.sh
+
+board="$(board_name)"
+[ "$board" = "huastlink,hc852" ] || exit 0
+
+LOCKFILE="/var/lock/hc852_modem_autoselect.lock"
+lock "$LOCKFILE" >/dev/null 2>&1
+trap 'lock -u "$LOCKFILE" >/dev/null 2>&1' EXIT INT TERM HUP
+
+pick_modems() {
+	local dev
+
+	PRIMARY_DEV=""
+	SECONDARY_DEV=""
+
+	for dev in /dev/cdc-wdm*; do
+		[ -c "$dev" ] || continue
+		if [ -z "$PRIMARY_DEV" ]; then
+			PRIMARY_DEV="$dev"
+			continue
+		fi
+		if [ -z "$SECONDARY_DEV" ]; then
+			SECONDARY_DEV="$dev"
+			break
+		fi
+	done
+}
+
+set_iface_device() {
+	local iface="$1"
+	local dev="$2"
+	local current
+
+	uci -q get "network.${iface}" >/dev/null || return 1
+	current="$(uci -q get "network.${iface}.device")"
+	[ "$current" = "$dev" ] && return 1
+
+	uci set "network.${iface}.device=${dev}"
+	return 0
+}
+
+pick_modems
+
+[ -n "$PRIMARY_DEV" ] || exit 0
+
+CHANGED=0
+
+# Backward compatibility if runtime still has the old interface name.
+if uci -q get network.lte >/dev/null && ! uci -q get network.defdo_dev >/dev/null; then
+	uci rename network.lte="defdo_dev"
+	CHANGED=1
+fi
+
+if set_iface_device "defdo_dev" "$PRIMARY_DEV"; then
+	CHANGED=1
+fi
+
+if [ -n "$SECONDARY_DEV" ] && set_iface_device "defdo_dev2" "$SECONDARY_DEV"; then
+	CHANGED=1
+fi
+
+if [ "$CHANGED" -eq 1 ]; then
+	uci commit network
+	logger -t hc852 "modem auto-select: defdo_dev=${PRIMARY_DEV} defdo_dev2=${SECONDARY_DEV:-none}"
+fi
+
+if uci -q get network.defdo_dev >/dev/null; then
+	ifup defdo_dev >/dev/null 2>&1
+fi
+
+exit 0

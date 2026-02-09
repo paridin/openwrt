@@ -7,6 +7,12 @@ ramips_setup_interfaces()
 	local board="$1"
 
 	case $board in
+	huastlink,hc852)
+		# HC852 lab-validated mapping:
+		# physical jacks are labeled WAN, LAN4, LAN3, LAN2 (no exposed LAN1 jack).
+		# LAN ports are LAN2/LAN3/LAN4; dedicated WAN jack maps to "wan".
+		ucidef_set_interfaces_lan_wan "lan2 lan3 lan4" "wan"
+		;;
 	alfa-network,ax1800rm|\
 	ampedwireless,ally-r1900k|\
 	asus,rt-ax53u|\
@@ -196,6 +202,11 @@ ramips_setup_macs()
 	local label_mac=""
 
 	case $board in
+	huastlink,hc852)
+		lan_mac=$(mtd_get_mac_binary factory 0x4)
+		wan_mac=$(macaddr_add "$lan_mac" 1)
+		label_mac=$lan_mac
+		;;
 	alfa-network,ax1800rm|\
 	jcg,y2|\
 	wavlink,wl-wn531a6|\
