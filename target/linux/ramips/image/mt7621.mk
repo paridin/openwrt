@@ -1678,6 +1678,29 @@ define Device/humax_e10
 endef
 TARGET_DEVICES += humax_e10
 
+define Device/huastlink_hc852
+  $(Device/dsa-migration)
+  DEVICE_VENDOR := Huastlink
+  DEVICE_MODEL := HC852
+  DTS := mt7621_huastlink_hc852
+  DEVICE_PACKAGES := kmod-usb2 kmod-usb3 kmod-usb-wdm kmod-usb-acm \
+	kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-cdc-ncm \
+	kmod-usb-net-cdc-mbim kmod-usb-net-qmi-wwan kmod-usb-net-rndis \
+	kmod-usb-serial kmod-usb-serial-option kmod-usb-serial-qualcomm \
+	kmod-usb-serial-wwan usb-modeswitch \
+	kmod-mhi-bus kmod-mhi-pci-generic kmod-mhi-net \
+	kmod-wwan kmod-mhi-wwan-ctrl kmod-mhi-wwan-mbim \
+	uqmi umbim \
+	usbutils pciutils ip-full ethtool tcpdump-mini vim-full \
+	luci luci-proto-qmi luci-proto-mbim luci-proto-ncm \
+	mwan3 luci-app-mwan3 \
+	-uboot-envtools
+  KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
+  IMAGE_SIZE := 31808k
+  SUPPORTED_DEVICES := huastlink,hc852 mt7621-rfb-ax-nor
+endef
+TARGET_DEVICES += huastlink_hc852
+
 define Device/huasifei_ws1208v2
   $(Device/dsa-migration)
   $(Device/uimage-lzma-loader)

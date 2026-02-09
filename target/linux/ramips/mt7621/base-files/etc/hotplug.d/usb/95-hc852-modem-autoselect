@@ -1,0 +1,14 @@
+#!/bin/sh
+
+[ "$ACTION" = "add" ] || [ "$ACTION" = "remove" ] || exit 0
+
+. /lib/functions/system.sh
+[ "$(board_name)" = "huastlink,hc852" ] || exit 0
+
+[ -x /usr/sbin/hc852_modem_autoselect ] || exit 0
+
+# Let udev-like node creation settle before scanning /dev/cdc-wdm*.
+sleep 1
+/usr/sbin/hc852_modem_autoselect "$ACTION" >/dev/null 2>&1
+
+exit 0
