@@ -1,0 +1,17 @@
+#!/bin/sh /etc/rc.common
+
+START=18
+USE_PROCD=0
+
+start() {
+	[ -x /usr/sbin/hc852_modem_guard ] || return 0
+	/usr/sbin/hc852_modem_guard apply >/dev/null 2>&1
+}
+
+stop() {
+	return 0
+}
+
+reload_service() {
+	start
+}

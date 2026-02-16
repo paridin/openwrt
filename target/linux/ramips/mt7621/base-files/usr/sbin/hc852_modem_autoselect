@@ -9,41 +9,137 @@ LOCKFILE="/var/lock/hc852_modem_autoselect.lock"
 lock "$LOCKFILE" >/dev/null 2>&1
 trap 'lock -u "$LOCKFILE" >/dev/null 2>&1' EXIT INT TERM HUP
 
-pick_modems() {
-	local dev
+pick_usb_netdevs() {
+	local dev name
 
-	PRIMARY_DEV=""
-	SECONDARY_DEV=""
+	USB_PRIMARY=""
+	USB_SECONDARY=""
 
-	for dev in /dev/cdc-wdm*; do
-		[ -c "$dev" ] || continue
-		if [ -z "$PRIMARY_DEV" ]; then
-			PRIMARY_DEV="$dev"
+	for dev in /sys/class/net/usb*; do
+		[ -e "$dev" ] || continue
+		name="${dev##*/}"
+		[ -n "$USB_PRIMARY" ] || {
+			USB_PRIMARY="$name"
 			continue
-		fi
-		if [ -z "$SECONDARY_DEV" ]; then
-			SECONDARY_DEV="$dev"
+		}
+		[ -n "$USB_SECONDARY" ] || {
+			USB_SECONDARY="$name"
 			break
-		fi
+		}
 	done
 }
 
-set_iface_device() {
+cm_running_iface() {
 	local iface="$1"
-	local dev="$2"
-	local current
-
-	uci -q get "network.${iface}" >/dev/null || return 1
-	current="$(uci -q get "network.${iface}.device")"
-	[ "$current" = "$dev" ] && return 1
-
-	uci set "network.${iface}.device=${dev}"
-	return 0
+	ps | grep -q "[q]uectel-CM -i ${iface}\\b"
 }
 
-pick_modems
+kill_cm_iface() {
+	local iface="$1"
+	local pids pid
 
-[ -n "$PRIMARY_DEV" ] || exit 0
+	pids="$(ps | awk -v ifc="$iface" '$0 ~ /[q]uectel-CM/ && $0 ~ ("-i " ifc "($| )") { print $1 }')"
+	[ -n "$pids" ] || return 0
+
+	for pid in $pids; do
+		kill -TERM "$pid" >/dev/null 2>&1 || true
+	done
+	sleep 1
+	for pid in $pids; do
+		kill -KILL "$pid" >/dev/null 2>&1 || true
+	done
+}
+
+kill_udhcpc_iface() {
+	local iface="$1"
+	local pidf pid
+
+	pidf="/var/run/udhcpc-${iface}.pid"
+	[ -f "$pidf" ] || return 0
+
+	pid="$(cat "$pidf" 2>/dev/null)"
+	case "$pid" in
+	''|*[!0-9]*) return 0 ;;
+	esac
+
+	kill -TERM "$pid" >/dev/null 2>&1 || true
+	sleep 1
+	kill -KILL "$pid" >/dev/null 2>&1 || true
+}
+
+start_quectel_cm() {
+	local iface="$1"
+	local apn="$2"
+	local force
+
+	[ -x /usr/sbin/quectel-CM ] || return 0
+	[ -n "$iface" ] || return 0
+	force="${HC852_CM_FORCE:-0}"
+
+	if cm_running_iface "$iface"; then
+		[ "$force" = "1" ] || return 0
+		kill_cm_iface "$iface"
+		kill_udhcpc_iface "$iface"
+	fi
+
+	if [ -n "$apn" ]; then
+		/usr/sbin/quectel-CM -i "$iface" -s "$apn" -4 >/tmp/quectel-"$iface".log 2>&1 &
+	else
+		/usr/sbin/quectel-CM -i "$iface" -4 >/tmp/quectel-"$iface".log 2>&1 &
+	fi
+
+	# Give the modem a moment to establish data call before DHCP retries.
+	sleep 3
+}
+
+set_iface_dhcp() {
+	local iface="$1"
+	local netdev="$2"
+	local changed=0
+
+	uci -q get "network.${iface}" >/dev/null || return 1
+
+	if [ "$(uci -q get "network.${iface}.proto")" != "dhcp" ]; then
+		uci set "network.${iface}.proto=dhcp"
+		changed=1
+	fi
+
+	if [ "$(uci -q get "network.${iface}.device")" != "$netdev" ]; then
+		uci set "network.${iface}.device=${netdev}"
+		changed=1
+	fi
+
+	if [ "$(uci -q get "network.${iface}.modem_mode")" != "usbnet_dhcp" ]; then
+		uci set "network.${iface}.modem_mode=usbnet_dhcp"
+		changed=1
+	fi
+
+	if uci -q get "network.${iface}.auth" >/dev/null; then
+		uci -q delete "network.${iface}.auth"
+		changed=1
+	fi
+
+	[ "$changed" -eq 1 ]
+}
+
+second_modem_enabled() {
+	local proto auto disabled
+
+	proto="$(uci -q get network.defdo_dev2.proto)"
+	auto="$(uci -q get network.defdo_dev2.auto)"
+	disabled="$(uci -q get network.defdo_dev2.disabled)"
+
+	[ "$disabled" = "1" ] && return 1
+	[ "$proto" = "none" ] && return 1
+	[ "$auto" = "1" ]
+}
+
+pick_usb_netdevs
+
+[ -n "$USB_PRIMARY" ] || {
+	logger -t hc852 "modem auto-select: no usb modem netdev present"
+	exit 0
+}
 
 CHANGED=0
 
@@ -53,21 +149,33 @@ if uci -q get network.lte >/dev/null && ! uci -q get network.defdo_dev >/dev/nul
 	CHANGED=1
 fi
 
-if set_iface_device "defdo_dev" "$PRIMARY_DEV"; then
+if set_iface_dhcp "defdo_dev" "$USB_PRIMARY"; then
 	CHANGED=1
 fi
 
-if [ -n "$SECONDARY_DEV" ] && set_iface_device "defdo_dev2" "$SECONDARY_DEV"; then
-	CHANGED=1
+if second_modem_enabled && [ -n "$USB_SECONDARY" ]; then
+	if set_iface_dhcp "defdo_dev2" "$USB_SECONDARY"; then
+		CHANGED=1
+	fi
 fi
 
 if [ "$CHANGED" -eq 1 ]; then
 	uci commit network
-	logger -t hc852 "modem auto-select: defdo_dev=${PRIMARY_DEV} defdo_dev2=${SECONDARY_DEV:-none}"
+	logger -t hc852 "modem auto-select: mode=usbnet_dhcp defdo_dev=${USB_PRIMARY} defdo_dev2=${USB_SECONDARY:-none}"
 fi
+
+start_quectel_cm "$USB_PRIMARY" "$(uci -q get network.defdo_dev.apn)"
 
 if uci -q get network.defdo_dev >/dev/null; then
 	ifup defdo_dev >/dev/null 2>&1
+fi
+
+if second_modem_enabled && [ -n "$USB_SECONDARY" ]; then
+	start_quectel_cm "$USB_SECONDARY" "$(uci -q get network.defdo_dev2.apn)"
+fi
+
+if second_modem_enabled && [ -n "$USB_SECONDARY" ] && uci -q get network.defdo_dev2 >/dev/null; then
+	ifup defdo_dev2 >/dev/null 2>&1
 fi
 
 exit 0

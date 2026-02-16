@@ -1,0 +1,29 @@
+--- a/src/GobiUSBNet.c
++++ b/src/GobiUSBNet.c
+@@ -947,7 +947,7 @@ static int qmap_register_device(sGobiUSBNet * pDev, u8 offset_id)
+ #else
+     qmap_net->netdev_ops = &qmap_netdev_ops;
+ #endif
+-    memcpy (qmap_net->dev_addr, real_dev->dev_addr, ETH_ALEN);
++    eth_hw_addr_set(qmap_net, real_dev->dev_addr);
+ 
+ #ifdef QUECTEL_BRIDGE_MODE
+ 	priv->m_bridge_mode = !!(pDev->m_bridge_mode & BIT(offset_id));
+@@ -1540,7 +1540,7 @@ static int GobiNetDriverBind(
+ 
+ #if 1 //def DATA_MODE_RP
+     /* make MAC addr easily distinguishable from an IP header */
+-    memcpy (pDev->net->dev_addr, node_id, sizeof node_id);
++    eth_hw_addr_set(pDev->net, node_id);
+     pDev->net->flags &= ~(IFF_BROADCAST | IFF_MULTICAST);
+     pDev->net->features |= (NETIF_F_VLAN_CHALLENGED);
+ #endif
+@@ -2955,7 +2955,7 @@ int GobiUSBNetProbe(
+    pGobiDev->mQMIDev.mpDevClass = gpClass;
+    
+    DBG( "Mac Address:\n" );
+-   PrintHex( &pGobiDev->mpNetDev->net->dev_addr[0], 6 );
++   PrintHex((void *)&pGobiDev->mpNetDev->net->dev_addr[0], 6 );
+ 
+    pGobiDev->mbQMIValid = false;
+    memset( &pGobiDev->mQMIDev, 0, sizeof( sQMIDev ) );

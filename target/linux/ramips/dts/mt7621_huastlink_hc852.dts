@@ -20,10 +20,11 @@
 
 	chosen {
 		/*
-		 * Increase DMA coherent pool to reduce xHCI allocation pressure
-		 * when two LTE USB modems are attached.
+		 * Override MT7621 default (57600) to keep serial output stable
+		 * with common USB-TTL adapters.
 		 */
-		bootargs = "console=ttyS0,115200 coherent_pool=8M";
+		stdout-path = "serial0:115200n8";
+		bootargs = "console=ttyS0,115200 rootfstype=squashfs,jffs2";
 	};
 
 	gpio-keys {
@@ -191,6 +192,11 @@
 
 &xhci {
 	status = "okay";
+	/*
+	 * Keep LTE modems on USB2 path for stability on this board.
+	 * This reduces xHCI resource pressure seen as "can't set config #1".
+	 */
+	mediatek,u3p-dis-msk = <0x1>;
 };
 
 &state_default {

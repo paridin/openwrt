@@ -1,0 +1,66 @@
+#!/bin/sh
+
+. /lib/functions/system.sh
+
+[ "$(board_name)" = "huastlink,hc852" ] || exit 0
+
+DISTFEEDS="/etc/opkg/distfeeds.conf"
+OPKG_CONF="/etc/opkg.conf"
+ARCH=""
+TARGET=""
+RELEASE=""
+BASE_URL=""
+
+if [ -r /etc/openwrt_release ]; then
+	. /etc/openwrt_release
+	ARCH="${DISTRIB_ARCH:-}"
+	TARGET="${DISTRIB_TARGET:-}"
+	RELEASE="${DISTRIB_RELEASE:-}"
+fi
+
+if [ -z "$ARCH" ]; then
+	ARCH="$(opkg print-architecture 2>/dev/null | awk '$1 == "arch" && $2 != "all" && $2 != "noarch" { print $2; exit }')"
+fi
+
+[ -n "$ARCH" ] || ARCH="mipsel_mips32"
+[ -n "$TARGET" ] || TARGET="ramips/mt7621"
+
+if [ -n "$RELEASE" ] && [ "$RELEASE" != "SNAPSHOT" ]; then
+	BASE_URL="https://downloads.openwrt.org/releases/${RELEASE}"
+else
+	BASE_URL="https://downloads.openwrt.org/snapshots"
+fi
+
+mkdir -p /etc/opkg
+
+cat > "$DISTFEEDS" <<EOF
+src/gz openwrt_core ${BASE_URL}/targets/${TARGET}/packages
+src/gz openwrt_base ${BASE_URL}/packages/${ARCH}/base
+src/gz openwrt_luci ${BASE_URL}/packages/${ARCH}/luci
+src/gz openwrt_packages ${BASE_URL}/packages/${ARCH}/packages
+src/gz openwrt_routing ${BASE_URL}/packages/${ARCH}/routing
+src/gz openwrt_telephony ${BASE_URL}/packages/${ARCH}/telephony
+EOF
+
+append_arch() {
+	local a="$1"
+	local p="$2"
+
+	grep -q "^arch ${a} " "$OPKG_CONF" 2>/dev/null || \
+		echo "arch ${a} ${p}" >> "$OPKG_CONF"
+}
+
+append_arch all 100
+append_arch noarch 200
+append_arch "$ARCH" 300
+
+# Keep compatibility when migrating images built with the other MT7621 package arch.
+if [ "$ARCH" = "mipsel_mips32" ]; then
+	append_arch mipsel_24kc 250
+elif [ "$ARCH" = "mipsel_24kc" ]; then
+	append_arch mipsel_mips32 250
+fi
+
+logger -t hc852 "opkg feeds fixed: target=${TARGET} arch=${ARCH}"
+
+exit 0

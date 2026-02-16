@@ -1685,15 +1685,15 @@ define Device/huastlink_hc852
   DTS := mt7621_huastlink_hc852
   DEVICE_PACKAGES := kmod-usb2 kmod-usb3 kmod-usb-wdm kmod-usb-acm \
 	kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-cdc-ncm \
-	kmod-usb-net-cdc-mbim kmod-usb-net-qmi-wwan kmod-usb-net-rndis \
+	kmod-usb-net-rndis \
 	kmod-usb-serial kmod-usb-serial-option kmod-usb-serial-qualcomm \
 	kmod-usb-serial-wwan usb-modeswitch \
-	kmod-mhi-bus kmod-mhi-pci-generic kmod-mhi-net \
-	kmod-wwan kmod-mhi-wwan-ctrl kmod-mhi-wwan-mbim \
-	uqmi umbim \
 	usbutils pciutils ip-full ethtool tcpdump-mini vim-full \
-	luci luci-proto-qmi luci-proto-mbim luci-proto-ncm \
+	ca-bundle ca-certificates curl \
+	luci \
+	quectel-cm kmod-quectel-gobinet \
 	mwan3 luci-app-mwan3 \
+	-kmod-usb-net-qmi-wwan -uqmi -luci-proto-qmi \
 	-uboot-envtools
   KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
   IMAGE_SIZE := 31808k

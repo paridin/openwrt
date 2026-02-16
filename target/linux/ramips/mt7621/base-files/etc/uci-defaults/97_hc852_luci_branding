@@ -1,0 +1,8 @@
+#!/bin/sh
+
+HEADER_SRC="/usr/share/hc852/luci-header-defdo.ut"
+HEADER_DST="/usr/share/ucode/luci/template/themes/bootstrap/header.ut"
+
+[ -f "$HEADER_SRC" ] && [ -f "$HEADER_DST" ] && cp -f "$HEADER_SRC" "$HEADER_DST"
+
+exit 0

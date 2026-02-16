@@ -1,0 +1,158 @@
+#!/bin/sh
+
+. /lib/functions/system.sh
+
+[ "$(board_name)" = "huastlink,hc852" ] || exit 0
+
+LOGTAG="hc852"
+LOCKFILE="/var/lock/hc852_modem_recover.lock"
+STAMPFILE="/var/run/hc852_modem_recover.last_try"
+FAILFILE="/var/run/hc852_modem_recover.fail_count"
+RECOVER_DEBOUNCE_SEC=20
+MAX_FAILS=3
+PING_TARGET="1.1.1.1"
+PING_TIMEOUT=2
+
+get_iface() {
+	local dev
+	dev="$(uci -q get network.defdo_dev.device)"
+	[ -n "$dev" ] || dev="usb0"
+	echo "$dev"
+}
+
+is_up() {
+	ubus call network.interface.defdo_dev status 2>/dev/null \
+		| jsonfilter -e '@.up' 2>/dev/null \
+		| grep -q '^true$'
+}
+
+device_present() {
+	local dev
+	dev="$(get_iface)"
+	[ -e "/sys/class/net/${dev}" ]
+}
+
+has_default_route() {
+	local dev="$1"
+	ip -4 route show default dev "$dev" 2>/dev/null | grep -q '^default '
+}
+
+probe_connectivity() {
+	local dev="$1"
+	local gw
+
+	ping -4 -I "$dev" -c 1 -W "$PING_TIMEOUT" "$PING_TARGET" >/dev/null 2>&1 && return 0
+
+	gw="$(ip -4 route show default dev "$dev" 2>/dev/null | awk 'NR==1 {print $3}')"
+	[ -n "$gw" ] || return 1
+
+	ping -4 -I "$dev" -c 1 -W "$PING_TIMEOUT" "$gw" >/dev/null 2>&1
+}
+
+debounce_ok() {
+	local last now delta
+
+	last="$(cat "$STAMPFILE" 2>/dev/null)"
+	now="$(date +%s 2>/dev/null)"
+
+	case "$last" in
+	''|*[!0-9]*) return 0 ;;
+	esac
+	case "$now" in
+	''|*[!0-9]*) return 0 ;;
+	esac
+
+	delta=$((now - last))
+	[ "$delta" -ge "$RECOVER_DEBOUNCE_SEC" ]
+}
+
+mark_try() {
+	date +%s > "$STAMPFILE" 2>/dev/null || true
+}
+
+get_fail_count() {
+	local n
+	n="$(cat "$FAILFILE" 2>/dev/null)"
+	case "$n" in
+	''|*[!0-9]*) echo 0 ;;
+	*) echo "$n" ;;
+	esac
+}
+
+set_fail_count() {
+	echo "$1" > "$FAILFILE" 2>/dev/null || true
+}
+
+reset_fail_count() {
+	rm -f "$FAILFILE" >/dev/null 2>&1 || true
+}
+
+recover_once() {
+	# Refresh modem authorization and force a clean dialer restart.
+	[ -x /usr/sbin/hc852_modem_guard ] && /usr/sbin/hc852_modem_guard apply force >/dev/null 2>&1 || true
+	ifdown defdo_dev >/dev/null 2>&1 || true
+	HC852_CM_FORCE=1 /usr/sbin/hc852_modem_autoselect recover >/dev/null 2>&1 || true
+	ifup defdo_dev >/dev/null 2>&1 || true
+	logger -t "$LOGTAG" "modem_recover: forced defdo_dev rebind"
+}
+
+tick() {
+	local auto dev fails
+
+	auto="$(uci -q get network.defdo_dev.auto)"
+	[ "$auto" = "1" ] || exit 0
+
+	device_present || {
+		reset_fail_count
+		exit 0
+	}
+
+	lock "$LOCKFILE" >/dev/null 2>&1 || exit 0
+	trap 'lock -u "$LOCKFILE" >/dev/null 2>&1' EXIT INT TERM HUP
+
+	dev="$(get_iface)"
+	[ -e "/sys/class/net/${dev}" ] || {
+		reset_fail_count
+		exit 0
+	}
+
+	if ! is_up; then
+		debounce_ok || exit 0
+		mark_try
+		recover_once
+		reset_fail_count
+		exit 0
+	fi
+
+	if has_default_route "$dev" && probe_connectivity "$dev"; then
+		reset_fail_count
+		exit 0
+	fi
+
+	fails="$(get_fail_count)"
+	fails=$((fails + 1))
+	set_fail_count "$fails"
+
+	[ "$fails" -ge "$MAX_FAILS" ] || exit 0
+	debounce_ok || exit 0
+
+	mark_try
+	recover_once
+	reset_fail_count
+}
+
+case "$1" in
+force)
+	mark_try
+	recover_once
+	reset_fail_count
+	;;
+status)
+	echo "iface=$(get_iface) up=$(is_up && echo 1 || echo 0) fails=$(get_fail_count)"
+	;;
+tick|"")
+	tick
+	;;
+esac
+
+exit 0

@@ -1,0 +1,73 @@
+#!/bin/sh
+
+LOGTAG="hc852"
+LOCKFILE="/var/lock/hc852_shutdown_guard.lock"
+
+lock "$LOCKFILE" >/dev/null 2>&1 || exit 0
+trap 'lock -u "$LOCKFILE" >/dev/null 2>&1' EXIT INT TERM HUP
+
+log() {
+	logger -t "$LOGTAG" "$*"
+}
+
+stop_interfaces() {
+	local iface
+
+	for iface in defdo_dev defdo_dev2 wan wan6; do
+		ifdown "$iface" >/dev/null 2>&1 || true
+	done
+}
+
+kill_udhcpc() {
+	local pidf pid
+
+	for pidf in /var/run/udhcpc-*.pid; do
+		[ -f "$pidf" ] || continue
+		pid="$(cat "$pidf" 2>/dev/null)"
+		case "$pid" in
+		''|*[!0-9]*) continue ;;
+		esac
+		kill -TERM "$pid" >/dev/null 2>&1 || true
+	done
+	sleep 1
+	for pidf in /var/run/udhcpc-*.pid; do
+		[ -f "$pidf" ] || continue
+		pid="$(cat "$pidf" 2>/dev/null)"
+		case "$pid" in
+		''|*[!0-9]*) continue ;;
+		esac
+		kill -KILL "$pid" >/dev/null 2>&1 || true
+	done
+}
+
+kill_modem_daemons() {
+	killall -q -TERM quectel-CM >/dev/null 2>&1 || true
+	killall -q -TERM uqmi >/dev/null 2>&1 || true
+	sleep 1
+	killall -q -KILL quectel-CM >/dev/null 2>&1 || true
+	killall -q -KILL uqmi >/dev/null 2>&1 || true
+}
+
+down_modem_links() {
+	local dev
+
+	for dev in usb0 usb1 wwan0 wwan1; do
+		ip link set "$dev" down >/dev/null 2>&1 || true
+	done
+}
+
+case "$1" in
+stop|shutdown|"")
+	log "shutdown_guard: draining modem and dhcp sessions"
+	stop_interfaces
+	kill_udhcpc
+	kill_modem_daemons
+	down_modem_links
+	sync
+	;;
+status)
+	ps | grep -q "[q]uectel-CM" && echo "quectel-CM: running" || echo "quectel-CM: stopped"
+	;;
+esac
+
+exit 0

@@ -1,0 +1,18 @@
+#!/bin/sh
+
+[ "$ACTION" = "add" ] || [ "$ACTION" = "remove" ] || exit 0
+
+. /lib/functions/system.sh
+[ "$(board_name)" = "huastlink,hc852" ] || exit 0
+[ -x /usr/sbin/hc852_modem_guard ] || exit 0
+
+# Limit to modem branches to avoid loops from unrelated USB events.
+case "${DEVPATH:-}" in
+	*/1-1.2*|*/1-1.3*) ;;
+	*) exit 0 ;;
+esac
+
+# Re-apply authorization policy whenever modem topology changes.
+/usr/sbin/hc852_modem_guard apply hotplug >/dev/null 2>&1
+
+exit 0

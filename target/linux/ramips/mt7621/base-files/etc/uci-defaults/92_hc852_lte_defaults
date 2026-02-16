@@ -16,8 +16,10 @@ if ! uci -q get network.defdo_dev >/dev/null; then
 	uci set network.defdo_dev="interface"
 fi
 
-uci set network.defdo_dev.proto="qmi"
-uci set network.defdo_dev.device="/dev/cdc-wdm0"
+# Prefer usbnet=1 (GobiNet/usbX) + DHCP by default.
+# HC852 build is intentionally USB-only for modem data path stability.
+uci set network.defdo_dev.proto="dhcp"
+uci set network.defdo_dev.device="usb0"
 uci set network.defdo_dev.apn="internet.mvno195.com"
 uci set network.defdo_dev.pdptype="ipv4v6"
 uci set network.defdo_dev.modes="lte"
@@ -26,12 +28,13 @@ uci set network.defdo_dev.timeout="60"
 uci set network.defdo_dev.delay="5"
 uci set network.defdo_dev.metric="30"
 uci set network.defdo_dev.auto="1"
+uci set network.defdo_dev.modem_label="defdo.dev"
 
 # Secondary profile for a second modem/card (manual enable).
 if ! uci -q get network.defdo_dev2 >/dev/null; then
 	uci set network.defdo_dev2="interface"
-	uci set network.defdo_dev2.proto="qmi"
-	uci set network.defdo_dev2.device="/dev/cdc-wdm1"
+	uci set network.defdo_dev2.proto="none"
+	uci set network.defdo_dev2.device="usb1"
 	uci set network.defdo_dev2.apn="internet.mvno195.com"
 	uci set network.defdo_dev2.pdptype="ipv4v6"
 	uci set network.defdo_dev2.modes="lte"
@@ -40,6 +43,8 @@ if ! uci -q get network.defdo_dev2 >/dev/null; then
 	uci set network.defdo_dev2.delay="5"
 	uci set network.defdo_dev2.metric="40"
 	uci set network.defdo_dev2.auto="0"
+	uci set network.defdo_dev2.disabled="1"
+	uci set network.defdo_dev2.modem_label="defdo.dev-2"
 fi
 
 wan_zone="$(uci -q show firewall | sed -n "s/^\(firewall\.@zone\[[0-9]\+\]\)\.name='wan'/\1/p" | head -n1)"
@@ -50,14 +55,12 @@ uci -q del_list "${wan_zone}.network"='lte'
 if ! uci -q show "${wan_zone}.network" | grep -q "'defdo_dev'"; then
 	uci -q add_list "${wan_zone}.network"='defdo_dev'
 fi
-if ! uci -q show "${wan_zone}.network" | grep -q "'defdo_dev2'"; then
-	uci -q add_list "${wan_zone}.network"='defdo_dev2'
-fi
+uci -q del_list "${wan_zone}.network"='defdo_dev2'
 
 uci commit network
 uci commit firewall
 
-# Try to bind the primary profile to the first present cdc-wdm device.
+# Bind primary profile to USB modem data path (usbX + DHCP).
 [ -x /usr/sbin/hc852_modem_autoselect ] && \
 	/usr/sbin/hc852_modem_autoselect boot >/dev/null 2>&1
 
