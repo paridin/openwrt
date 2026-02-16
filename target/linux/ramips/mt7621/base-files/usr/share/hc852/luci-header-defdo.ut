@@ -33,10 +33,10 @@
 		<link rel="stylesheet" href="{{ media }}/cascade.css">
 		<link rel="stylesheet" href="{{ media }}/defdo.css">
 		<link rel="stylesheet" media="only screen and (max-device-width: 854px)" href="{{ media }}/mobile.css" />
-		<link rel="shortcut icon" type="image/x-icon" href="https://cdn.mi-omv.com/assets/brands/defdo/favicon.ico">
-		<link rel="apple-touch-icon" sizes="180x180" href="https://cdn.mi-omv.com/assets/brands/defdo/apple-touch-icon.png">
-		<link rel="icon" type="image/png" sizes="32x32" href="https://cdn.mi-omv.com/assets/brands/defdo/favicon-32x32.png">
-		<link rel="icon" type="image/png" sizes="16x16" href="https://cdn.mi-omv.com/assets/brands/defdo/favicon-16x16.png">
+		<link rel="shortcut icon" type="image/x-icon" href="{{ media }}/defdo-favicon.ico">
+		<link rel="apple-touch-icon" sizes="180x180" href="{{ media }}/defdo-apple-touch-icon.png">
+		<link rel="icon" type="image/png" sizes="32x32" href="{{ media }}/defdo-favicon-32x32.png">
+		<link rel="icon" type="image/png" sizes="16x16" href="{{ media }}/defdo-favicon-16x16.png">
 		{% if (node?.css): %}
 		<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">
 		{% endif %}
@@ -52,7 +52,7 @@
 		<header>
 			<a class="brand defdo-brand" href="/">
 				<span>defdo.dev</span>
-				<img src="https://cdn.mi-omv.com/assets/brands/defdo/logo_main.png" alt="defdo.dev" class="defdo-logo" />
+				<img src="{{ media }}/defdo-logo-main.png" alt="defdo.dev" class="defdo-logo" />
 			</a>
 			<ul class="nav" id="topmenu" style="display:none"></ul>
 			<div id="indicators" class="pull-right"></div>
